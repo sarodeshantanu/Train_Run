@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Train-run — Wrap-around (no wall kill)</title>
+<style>
+  :root{
+    --bg:#0b0f14;
+    --panel:#0f1720;
+    --accent:#39d0ff;
+    --accent-2:#6ef08a;
+    --muted:#98a0aa;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  body{
+    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+    color:#e6f6ff;
+    background:linear-gradient(180deg,#071016 0%, #07121a 100%);
+  }
+
+  .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;}
+  .card{width:880px;max-width:96vw;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;padding:18px;box-sizing:border-box;display:grid;gap:14px;grid-template-columns:1fr 320px;align-items:start;box-shadow:0 8px 40px rgba(5,12,18,0.65);}
+  .game-area{display:flex;flex-direction:column;align-items:center;gap:12px;padding:10px;}
+  .title h1{margin:0;font-size:20px;letter-spacing:0.6px;color:var(--accent);}
+  .frame{padding:12px;background:linear-gradient(180deg,rgba(10,17,22,0.6),rgba(10,17,22,0.4));border-radius:10px;box-shadow:0 0 24px rgba(57,208,255,0.06),inset 0 1px 0 rgba(255,255,255,0.02);display:flex;align-items:center;justify-content:center;position:relative;}
+  canvas{width:640px;max-width:80vw;height:auto;display:block;border-radius:6px;background:#020306;image-rendering:pixelated; touch-action: none;}
+  .glow{position:absolute;inset:6px;border-radius:9px;pointer-events:none;box-shadow:0 0 40px rgba(57,208,255,0.08),0 0 80px rgba(57,208,255,0.03) inset;}
+  .sidebar{padding:10px 14px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0.005));border-radius:8px;}
+  .panel-title{font-size:13px;color:var(--muted);margin:0;}
+  .info-box{background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;color:#cfeffb;font-size:13px;line-height:1.4}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:40;background:linear-gradient(180deg,rgba(2,6,10,0.6),rgba(2,6,10,0.65));border-radius:10px;color:#dff9ff;text-align:center;padding:18px;touch-action:none;}
+  .overlay .box{max-width:420px;}
+  .start-btn{margin-top:10px;padding:10px 18px;border-radius:8px;border:none;cursor:pointer;background:linear-gradient(90deg,var(--accent),#6ff0ff);color:#001723;font-weight:700;font-size:14px;box-shadow:0 8px 30px rgba(57,208,255,0.10); touch-action:none;}
+  .touch-row{display:flex;gap:8px;justify-content:center;margin-top:6px;}
+  .touch-btn{width:56px;height:56px;border-radius:12px;border:none;background:linear-gradient(180deg,#06202a,#033144);color:var(--accent);font-weight:700;font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(2,10,14,0.6); touch-action:none;}
+  .touch-btn:active{transform:translateY(1px);box-shadow:0 4px 12px rgba(2,10,14,0.6);}
+  .popup-ui{position:absolute;top:12px;right:18px;pointer-events:none;z-index:50;}
+  .popup{font-weight:800;color:var(--accent-2);text-shadow:0 2px 8px rgba(0,0,0,0.7);font-size:14px;}
+  @media(max-width:900px){.card{grid-template-columns:1fr;}.sidebar{order:2}.game-area{order:1}canvas{max-width:92vw;}.touch-btn{width:48px;height:48px;border-radius:10px;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" role="application" aria-label="Train-run demo">
+    <div class="game-area">
+      <div class="title"><h1>Train-Run — Dashboard</h1></div>
+      <div class="frame" id="frame">
+        <canvas id="game" width="640" height="640" aria-label="Game canvas"></canvas>
+        <div class="glow" aria-hidden="true"></div>
+        <div class="overlay" id="startOverlay">
+          <div class="box">
+            <h2 style="margin:0;color:var(--accent)">Train-Run</h2>
+            <p style="margin:8px 0 0;color:#bfefff">Press any key or tap Start to begin. Use arrows or buttons to move.</p>
+            <button class="start-btn" id="startBtn">Start Game</button>
+            <div style="margin-top:10px;font-size:12px;color:var(--muted)">Wrap-around: edges connect • Consecutive eats = combo multiplier</div>
+          </div>
+        </div>
+        <div class="popup-ui" id="popupUi" aria-hidden="true"></div>
+      </div>
+
+      <div class="touch-row" id="touchButtons" style="display:none;">
+        <button class="touch-btn" id="up">↑</button>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div>
+        <p class="panel-title">Points</p>
+        <div class="info-box">
+          Current Points: <span id="pointsDisplay">0</span><br>
+          Speed increases as points rise.
+        </div>
+      </div>
+
+      <div>
+        <p class="panel-title">Playing Instructions</p>
+        <div class="info-box">
+          • Use <strong>Arrow Keys / WASD</strong> to move.<br>
+          • Edges wrap around (no wall death).<br>
+          • Consecutive eats within 1.8s build a combo multiplier.<br>
+          • Press <strong>R</strong> to restart anytime.<br>
+          • For touch devices: Up button available.
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* =========================
+   Wrap-around version (walls don't kill)
+   Train 170% & Food 115% preserved
+   ========================= */
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const frameEl = document.getElementById('frame');
+const popupUi = document.getElementById('popupUi');
+const pointsDisplay = document.getElementById('pointsDisplay');
+
+const CANVAS_BASE = 640;
+canvas.width = CANVAS_BASE;
+canvas.height = CANVAS_BASE;
+
+const cols = 20, rows = 20;
+const cell = CANVAS_BASE / cols;
+
+const baseFps = 8, maxFps = 28;
+
+let dir = {x:1, y:0};
+let snake = [{x: Math.floor(cols/2)-1, y: Math.floor(rows/2)}, {x: Math.floor(cols/2)-2, y: Math.floor(rows/2)}, {x: Math.floor(cols/2)-3, y: Math.floor(rows/2)}];
+let food = null;
+let lastMove = 0;
+let gameOver = false;
+let points = 0;
+
+let comboCount = 0;
+let lastEatTime = 0;
+const comboWindow = 1800;
+
+const particles = [];
+
+let tiltAngle = 0;
+const tiltDecay = 0.78;
+const maxTilt = 0.45;
+
+let audioCtx = null;
+
+const trainImg = new Image();
+trainImg.src = 'train_aakruti.png';
+let trainImgLoaded = false;
+trainImg.onload = () => { trainImgLoaded = true; };
+
+const foodImg = new Image();
+foodImg.src = 'food_aakruti.png';
+let foodImgLoaded = false;
+foodImg.onload = () => { foodImgLoaded = true; };
+
+ctx.imageSmoothingEnabled = true;
+
+const TRAIN_SCALE = 1.7;
+const FOOD_SCALE = 1.3;
+
+function ensureAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playEatBeep(mult=1){
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = 'sine';
+  o.frequency.value = 700 + (mult-1)*110;
+  g.gain.value = 0.0001;
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0);
+  g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09 + Math.min(0.2, 0.02*mult));
+  setTimeout(()=>o.stop(), 200 + mult*25);
+}
+function playCrash(){
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.value = 140;
+  g.gain.value = 0.18;
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
+  setTimeout(()=>o.stop(), 350);
+}
+
+function spawnParticles(cellPos) {
+  const cx = (cellPos.x + 0.5) * cell;
+  const cy = (cellPos.y + 0.5) * cell;
+  const now = performance.now();
+  for (let i=0;i<18;i++){
+    particles.push({
+      x: cx,
+      y: cy,
+      vx: (Math.random()-0.5) * (1.8 + Math.random()*1.2),
+      vy: (Math.random()-0.5) * (1.8 + Math.random()*1.2),
+      size: Math.max(1, cell * 0.06 * (0.6 + Math.random()*1.2)),
+      life: 340 + Math.random()*300,
+      start: now,
+      colorBase: 180 + Math.floor(Math.random()*40)
+    });
+  }
+}
+function updateAndDrawParticles(ts){
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    const age = ts - p.start;
+    if (age >= p.life) { particles.splice(i,1); continue; }
+    p.vy += 0.04;
+    p.x += p.vx;
+    p.y += p.vy;
+    const alpha = 1 - age / p.life;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = `rgba(255, ${p.colorBase}, ${90 + Math.floor(Math.random()*30)}, ${alpha})`;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function pushComboPopup(n){
+  const text = `+${n} volt${n>1?'s':''}`;
+  const el = document.createElement('div');
+  el.className = 'popup';
+  el.textContent = text;
+  popupUi.appendChild(el);
+  const start = performance.now();
+  const dur = 900;
+  const anim = setInterval(()=>{
+    const t = (performance.now() - start) / dur;
+    if (t >= 1){ el.remove(); clearInterval(anim); return; }
+    el.style.opacity = (1 - t).toString();
+    el.style.transform = `translateY(${(-t * 28)}px)`;
+  }, 16);
+}
+
+function spawnFood(){
+  while(true){
+    const pos = { x: Math.floor(Math.random()*cols), y: Math.floor(Math.random()*rows) };
+    if (!snake.some(s => s.x === pos.x && s.y === pos.y)) { food = pos; break; }
+  }
+}
+
+function drawTrainHead(s, scale = TRAIN_SCALE, angleOffset = 0) {
+  const px = s.x * cell;
+  const py = s.y * cell;
+  const cx = px + cell/2;
+  const cy = py + cell/2;
+  const size = cell * scale;
+
+  let baseAngle = 0;
+  if (dir.x === 1 && dir.y === 0) baseAngle = 0;
+  if (dir.x === -1 && dir.y === 0) baseAngle = Math.PI;
+  if (dir.x === 0 && dir.y === 1) baseAngle = Math.PI/2;
+  if (dir.x === 0 && dir.y === -1) baseAngle = -Math.PI/2;
+
+  const totalAngle = baseAngle + angleOffset;
+
+  if (trainImgLoaded) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(totalAngle);
+    ctx.drawImage(trainImg, -size/2, -size/2, size, size);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#ff6b4d';
+    ctx.fillRect(px + (cell - size)/2, py + (cell - size)/2, size, size);
+  }
+}
+
+function drawFoodImage(pos) {
+  const cx = pos.x * cell + cell/2;
+  const cy = pos.y * cell + cell/2;
+  const size = cell * FOOD_SCALE;
+  if (foodImgLoaded) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.drawImage(foodImg, -size/2, -size/2, size, size);
+    ctx.restore();
+  } else {
+    ctx.beginPath();
+    ctx.fillStyle = '#ffd86b';
+    ctx.arc(cx, cy, Math.max(2, cell*0.36), 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#072226';
+    ctx.font = `${Math.max(9, cell*0.45)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('+', cx, cy);
+  }
+}
+
+function draw(ts = performance.now()){
+  tiltAngle *= tiltDecay;
+  if (Math.abs(tiltAngle) < 0.002) tiltAngle = 0;
+
+  ctx.fillStyle = '#041018';
+  ctx.fillRect(0,0,canvas.width, canvas.height);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for (let i=0;i<=cols;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,canvas.height); ctx.stroke(); }
+  for (let j=0;j<=rows;j++){ ctx.beginPath(); ctx.moveTo(0,j*cell); ctx.lineTo(canvas.width,j*cell); ctx.stroke(); }
+
+  if (food) drawFoodImage(food);
+
+  for (let i=0; i<snake.length; i++){
+    const s = snake[i];
+    const alpha = 1 - (i / Math.max(1, snake.length)) * 0.72;
+    ctx.globalAlpha = alpha;
+    if (i === 0) {
+      drawTrainHead(s, TRAIN_SCALE, tiltAngle);
+    } else {
+      const pad = Math.max(1, Math.round(cell*0.06));
+      ctx.fillStyle = '#1fd7b4';
+      ctx.fillRect(s.x*cell + pad, s.y*cell + pad, cell - 2*pad, cell - 2*pad);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  updateAndDrawParticles(ts);
+
+  if (gameOver){
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0,0,canvas.width, canvas.height);
+    ctx.fillStyle = '#e6f6ff';
+    ctx.font = '28px Inter, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Game Over', canvas.width/2, canvas.height/2 - 6);
+    ctx.font = '14px Inter, monospace';
+    ctx.fillText('Press R to restart', canvas.width/2, canvas.height/2 + 18);
+  }
+}
+
+function step(){
+  if (gameOver) return;
+
+  // wrap-around instead of wall kill
+  const nx = (snake[0].x + dir.x + cols) % cols;
+  const ny = (snake[0].y + dir.y + rows) % rows;
+
+  const head = { x: nx, y: ny };
+
+  // detect turn for tilt (previous movement vector)
+  const prevDir = { x: snake[0].x - (snake[1] ? snake[1].x : snake[0].x), y: snake[0].y - (snake[1] ? snake[1].y : snake[0].y) };
+  const turned = !(prevDir.x === dir.x && prevDir.y === dir.y);
+  if (turned) {
+    const crossZ = prevDir.x * dir.y - prevDir.y * dir.x;
+    tiltAngle = Math.sign(crossZ) * maxTilt;
+  }
+
+  // self collision still kills
+  if (snake.some((s,i)=> i>0 && s.x===head.x && s.y===head.y)){
+    gameOver = true;
+    if (audioCtx) playCrash();
+    draw();
+    return;
+  }
+
+  snake.unshift(head);
+
+  if (food && head.x === food.x && head.y === food.y){
+    const now = performance.now();
+    if (now - lastEatTime <= comboWindow) comboCount = Math.min(8, comboCount + 1); else comboCount = 1;
+    lastEatTime = now;
+    points += comboCount;
+    pointsDisplay.textContent = points;
+    spawnParticles(food);
+    pushComboPopup(comboCount);
+    if (audioCtx) playEatBeep(comboCount);
+    spawnFood();
+  } else {
+    snake.pop();
+  }
+}
+
+const keyMap = {
+  'ArrowUp':{x:0,y:-1}, 'w':{x:0,y:-1}, 'W':{x:0,y:-1},
+  'ArrowDown':{x:0,y:1}, 's':{x:0,y:1}, 'S':{x:0,y:1},
+  'ArrowLeft':{x:-1,y:0}, 'a':{x:-1,y:0}, 'A':{x:-1,y:0},
+  'ArrowRight':{x:1,y:0}, 'd':{x:1,y:0}, 'D':{x:1,y:0}
+};
+
+window.addEventListener('keydown', e => {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  if (!audioCtx) { try { ensureAudio(); audioCtx && audioCtx.resume && audioCtx.resume(); } catch(e){} }
+  if (e.key === 'r' || e.key === 'R') { reset(); return; }
+  const next = keyMap[e.key];
+  if (next && !(next.x === -dir.x && next.y === -dir.y)) {
+    const crossZ = dir.x * next.y - dir.y * next.x;
+    if (crossZ !== 0) tiltAngle = Math.sign(crossZ) * maxTilt;
+    dir = next;
+  }
+}, { passive: false });
+
+function setupTouch(){
+  const tb = document.getElementById('touchButtons');
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0){
+    tb.style.display = 'flex';
+    const upEl = document.getElementById('up');
+    upEl.addEventListener('touchstart', function(ev){
+      ev.preventDefault();
+      if (!(dir.y === 1)) {
+        const next = {x:0,y:-1};
+        const crossZ = dir.x * next.y - dir.y * next.x;
+        if (crossZ !==0) tiltAngle = Math.sign(crossZ) * maxTilt;
+        dir = next;
+      }
+    }, { passive: false });
+    upEl.addEventListener('click', function(ev){
+      ev.preventDefault();
+      if (!(dir.y === 1)) {
+        const next = {x:0,y:-1};
+        const crossZ = dir.x * next.y - dir.y * next.x;
+        if (crossZ !==0) tiltAngle = Math.sign(crossZ) * maxTilt;
+        dir = next;
+      }
+    });
+  }
+}
+
+function reset(){
+  dir = {x:1, y:0};
+  snake = [{x: Math.floor(cols/2)-1, y: Math.floor(rows/2)}, {x: Math.floor(cols/2)-2, y: Math.floor(rows/2)}, {x: Math.floor(cols/2)-3, y: Math.floor(rows/2)}];
+  food = null;
+  lastMove = 0;
+  gameOver = false;
+  points = 0;
+  pointsDisplay.textContent = 0;
+  comboCount = 0;
+  lastEatTime = 0;
+  particles.length = 0;
+  popupUi.innerHTML = '';
+  tiltAngle = 0;
+  spawnFood();
+  draw(performance.now());
+}
+
+let started = false;
+const startOverlay = document.getElementById('startOverlay');
+const startBtn = document.getElementById('startBtn');
+function showOverlay(show = true){ startOverlay.style.display = show ? 'flex' : 'none'; }
+showOverlay(true);
+function startGame() {
+  if (started) return;
+  started = true;
+  showOverlay(false);
+  try { ensureAudio(); audioCtx && audioCtx.resume && audioCtx.resume(); } catch(e){}
+  reset();
+  requestAnimationFrame(loop);
+}
+startBtn.addEventListener('click', startGame);
+document.addEventListener('keydown', (e) => { if (!started) startGame(); });
+
+function loop(ts){
+  if (!started) return;
+  if (!lastMove) lastMove = ts;
+  const interval = 1000 / Math.min(maxFps, baseFps + points);
+  if (ts - lastMove >= interval) {
+    step();
+    lastMove = ts;
+  }
+  tiltAngle *= tiltDecay;
+  if (Math.abs(tiltAngle) < 0.002) tiltAngle = 0;
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+setupTouch();
+spawnFood();
+draw(performance.now());
+
+function scaleCanvas(){
+  const size = Math.min(frameEl.clientWidth - 24, 720);
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+}
+window.addEventListener('resize', scaleCanvas);
+scaleCanvas();
+
+window.demoGame = { reset, startGame };
+</script>
+</body>
+</html>
